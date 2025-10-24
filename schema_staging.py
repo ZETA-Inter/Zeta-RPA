@@ -317,5 +317,8 @@ if __name__ == "__main__":
     print("\nTransferindo os dados para o schema 'staging':")
     transfer_data(cur1, cur2, conn2, 'staging')
 
-    
-
+    # Fecha as conexões
+    cur1.close()
+    conn1.close()
+    cur2.close()
+    conn2.close()
