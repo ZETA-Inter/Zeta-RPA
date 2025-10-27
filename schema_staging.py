@@ -281,44 +281,47 @@ def transfer_data(cur_src, cur_dest, conn_dest, schema="staging"):
 
 # Função principal
 if __name__ == "__main__":
-    # Carrega as envs
-    load_dotenv()
+    try:
+        # Carrega as envs
+        load_dotenv()
 
-    # Declarando as variáveis do banco do primeiro ano
-    conn1 = psycopg2.connect(os.getenv("POSTGRES_URL_1"))
-    cur1 = conn1.cursor()
+        # Declarando as variáveis do banco do primeiro ano
+        conn1 = psycopg2.connect(os.getenv("POSTGRES_URL_1"))
+        cur1 = conn1.cursor()
 
-    # Declarando as variáveis do banco do primeiro ano
-    conn2 = psycopg2.connect(os.getenv("POSTGRES_URL_2"))
-    cur2 = conn2.cursor()
+        # Declarando as variáveis do banco do primeiro ano
+        conn2 = psycopg2.connect(os.getenv("POSTGRES_URL_2"))
+        cur2 = conn2.cursor()
 
-    # Criando o schema de staging (caso ele não exista)
-    print("Criando o schema 'staging':")
-    create_staging_schema(conn2, cur2)
+        # Criando o schema de staging (caso ele não exista)
+        print("Criando o schema 'staging':")
+        create_staging_schema(conn2, cur2)
 
-    # Montando a estrutura das tabelas
-    structure = get_tables_columns(cur1)
+        # Montando a estrutura das tabelas
+        structure = get_tables_columns(cur1)
 
-    # Criando as tabelas no postgres
-    print("\nCriando as tabelas no schema 'staging':")
-    create_tables(cur2, conn2, structure, 'staging')
+        # Criando as tabelas no postgres
+        print("\nCriando as tabelas no schema 'staging':")
+        create_tables(cur2, conn2, structure, 'staging')
 
-    # Criando as FKs no banco do segundo ano (não funciona essas funções)
-    foreign_keys = get_foreign_keys(cur1, 'public')
+        # Criando as FKs no banco do segundo ano (não funciona essas funções)
+        foreign_keys = get_foreign_keys(cur1, 'public')
 
-    # print("\nCriando as Foreign Keys no schema 'staging':")
-    create_foreign_keys(cur2, conn2, foreign_keys, 'staging')
+        # print("\nCriando as Foreign Keys no schema 'staging':")
+        create_foreign_keys(cur2, conn2, foreign_keys, 'staging')
 
-    # Sincronizando a estrutura das tabelas (caso tenha adicionado alguma coluna nas tabelas)
-    print("\nSincronizando a estrutura das tabelas no schema 'staging'")
-    sync_table_structure(cur1, cur2, conn2, 'staging')
+        # Sincronizando a estrutura das tabelas (caso tenha adicionado alguma coluna nas tabelas)
+        print("\nSincronizando a estrutura das tabelas no schema 'staging'")
+        sync_table_structure(cur1, cur2, conn2, 'staging')
 
-    # Transferindo os dados 
-    print("\nTransferindo os dados para o schema 'staging':")
-    transfer_data(cur1, cur2, conn2, 'staging')
-
-    # Fecha as conexões
-    cur1.close()
-    conn1.close()
-    cur2.close()
-    conn2.close()
+        # Transferindo os dados 
+        print("\nTransferindo os dados para o schema 'staging':")
+        transfer_data(cur1, cur2, conn2, 'staging')
+    except Exception as e:
+        print(f"Erro ao sincronizar as tabelas: {e}")
+    finally:
+        # Fecha as conexões
+        cur1.close()
+        conn1.close()
+        cur2.close()
+        conn2.close()
