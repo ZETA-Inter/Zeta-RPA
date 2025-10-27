@@ -4,6 +4,12 @@ from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
 import re
+import time
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementClickInterceptedException
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-= FUNÇÕES -=-=-=-=-=-=-=-=-=-=-=-=-=
 # Atualiza a tabela plans
@@ -273,6 +279,94 @@ def split_text(text, max_len=250):
                 parts.append(current.strip())
             return parts
 
+# Com base na lei recebida do banco, pesquisa no site da defesa agropecuária de São Paulo
+def search_law(law_number: str):
+    try:
+        chrome_options = Options()
+        chrome_options.add_argument("--headless=new")
+
+        # Conecta ao site da Câmara (para buscar as leis)
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.get("https://www.defesa.agricultura.sp.gov.br/legislacoes")
+        time.sleep(2)
+
+        # Verifica cada categoria de leis
+        type_id = None
+        if "decreto" in law_number.lower():
+            type_id = "id_tipo_leg[]_1"
+        elif "lei complementar" in law_number.lower():
+            type_id = "id_tipo_leg[]_4"
+        elif "lei" in law_number.lower():
+            type_id = "id_tipo_leg[]_5"
+        elif "instrução normativa" in law_number.lower() or "in " in law_number.lower():
+            type_id = "id_tipo_leg[]_2"
+        elif "portaria" in law_number.lower():
+            type_id = "id_tipo_leg[]_6"
+        elif "nota técnica" in law_number.lower():
+            type_id = "id_tipo_leg[]_8"
+        elif "resolução" in law_number.lower():
+            type_id = "id_tipo_leg[]_7"
+
+        # caso type_id esteja vazio
+        if not type_id:
+            return None
+
+        try:
+            # Se não estiver vazio, clica na opção correspondente da página
+            driver.find_element(By.ID, type_id).click()
+        except NoSuchElementException:
+            return None
+        
+        # Expressão regular para pegar número e ano
+        match = re.search(r'([\d\.]+)\s*/\s*(\d{4})', law_number)
+        if match:
+            law_number = match.group(1)
+            law_year = match.group(2)
+        else:
+            law_number, law_year = None, None
+            return None
+        
+        time.sleep(2)
+
+        # Preenche o número da lei
+        try:
+            number_box = driver.find_element(By.XPATH, "/html/body/main/section[2]/div[2]/table/tbody/tr[1]/td/form/table[2]/tbody/tr[1]/td[2]/input")
+            number_box.send_keys(law_number)
+            time.sleep(2)
+
+        except Exception as e:
+            return None
+
+        # Clica no botão de buscar
+        try:
+            driver.find_element(By.XPATH, '/html/body/main/section[2]/div[2]/table/tbody/tr[1]/td/form/table[2]/tbody/tr[5]/td/input').click()
+            time.sleep(2)
+        except Exception as e:
+            return None
+
+        # Scrolla a tela para baixo
+        try:
+            driver.execute_script("window.scrollTo(0, 200);")
+
+            # Clica no primeiro resultado
+            first_result = driver.find_element(By.XPATH, '/html/body/main/section[2]/div[2]/ul[1]/li/p/a')
+            if first_result:
+                first_result.click()
+            else: 
+                return None
+            time.sleep(2)
+
+            # Pega o texto da ementa
+            law_description = driver.find_element(By.XPATH, '/html/body/main/section[2]/div[2]/p[2]').text
+            return law_description
+            
+        except Exception as e:
+            return None
+
+    except (TimeoutException, Exception) as e:
+        print("Ocorreu um erro durante a execução do script:", e)
+        return None
+
 # Atualiza collection classes no MongoDB
 def update_classes(coll_classes, cur):
     try:
@@ -341,10 +435,11 @@ def update_classes(coll_classes, cur):
 
              # adiciona leis (a descrição será preenchida por outro RPA futuramente) - sem duplicar
             if law_number and law_number not in doc["_seen_laws"]:
+                law_description = search_law(law_number) # Chama a função search_law (um web scraping para a lei)
                 doc["_seen_laws"].add(law_number)
                 doc["laws"].append({
                     "number": law_number,
-                    "description": None
+                    "description": law_description
                 })
 
         # Remove os sets de controle antes de enviar ao MongoDB
@@ -388,43 +483,45 @@ def update_classes(coll_classes, cur):
 
 # Chamando as funções 
 if "__main__" == __name__:
+    try:
+        # Declarando as variáveis de ambiente
+        load_dotenv()
 
-    # Declarando as variáveis de ambiente
-    load_dotenv()
+        # banco Postgres
+        POSTGRES_URL = os.getenv("POSTGRES_URL_2")
+        conn = psycopg2.connect(POSTGRES_URL)
+        cur = conn.cursor()
 
-    # banco Postgres
-    POSTGRES_URL = os.getenv("POSTGRES_URL_2")
-    conn = psycopg2.connect(POSTGRES_URL)
-    cur = conn.cursor()
+        # banco MongoDB
+        mongo_url = os.getenv("MONGODB_URL")
+        client = MongoClient(mongo_url)
+        dbZeta = client["Zeta"] 
+        activities = dbZeta['activities']
+        classes = dbZeta['classes']
 
-    # banco MongoDB
-    mongo_url = os.getenv("MONGODB_URL")
-    client = MongoClient(mongo_url)
-    dbZeta = client["Zeta"] 
-    activities = dbZeta['activities']
-    classes = dbZeta['classes_teste']
+        # Atualizando a tabela plans
+        print("Atualizando a tabela 'plans'...")
+        update_plans(cur, conn)
 
-    # Atualizando a tabela plans
-    print("Atualizando a tabela 'plans'...")
-    update_plans(cur, conn)
+        # Atualizando a tabela segments
+        print("\nAtualizando a tabela 'segments'...")
+        update_segments(cur, conn)
 
-    # Atualizando a tabela segments
-    print("\nAtualizando a tabela 'segments'...")
-    update_segments(cur, conn)
+        # Atualiza a tabela workers 
+        print("\nAtualizando a tabela 'workers'...")
+        update_workers(cur, conn)
 
-    # Atualiza a tabela workers 
-    print("\nAtualizando a tabela 'workers'...")
-    update_workers(cur, conn)
+        # Atualiza ou insere documentos na collection activities
+        print("\nSincronizando a collection 'activities'...")
+        update_activities(activities, cur)
 
-    # Atualiza ou insere documentos na collection activities
-    print("\nSincronizando a collection 'activities'...")
-    update_activities(activities, cur)
-
-    # Atuliza ou insere documentos na collection classes
-    print("\nAtualizando a collection 'classes'...")
-    update_classes(classes, cur)
-
-    # Fecha as conexões
-    cur.close()
-    conn.close()
-    client.close()
+        # Atuliza ou insere documentos na collection classes
+        print("\nAtualizando a collection 'classes'...")
+        update_classes(classes, cur)
+    except Exception as e:
+        print(f"Erro ao executar o RPA: {e}")
+    finally:
+        # Fecha as conexões
+        cur.close()
+        conn.close()
+        client.close()
