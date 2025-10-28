@@ -10,7 +10,7 @@ Este repositório há dois arquivos principais:
 **collect_data**: RPA para a sincronização de dados com os bancos PostgreSQL e MongoDB.
 
 ## Linguagens utilizadas
-Para o desenvolvimento dos agentes foi utilizada a linguagem Python.
+Para o desenvolvimento do RPA foi utilizado a linguagem Python.
 
 ## Frameworks
 Foi utilizado os seguintes frameworks:
