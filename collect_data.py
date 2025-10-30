@@ -241,7 +241,7 @@ def update_activities(coll_activities, cur):
                     if existing != data:
                         coll_activities.replace_one({"_id": atividade_id}, data)
                         updated += 1
-                        print("Atividade {atividade_id} atualizada.")
+                        print(f"Atividade {atividade_id} atualizada.")
             except Exception as e:
                 print(f"Erro ao processar atividade {atividade_id}: {e}")
 
